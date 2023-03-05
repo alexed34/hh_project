@@ -21,6 +21,27 @@ def check_name(name):
     for item in bad_names:
         if re.match(item, name):
             return True
+        
+def get_valut(s, v, valutes):
+    valute = valutes.get(v, {'Value': 1}).get('Value')
+    # print(s, v, valute)
+    n = valute.get(v, 1)
+    return s*n
+
+def chek_salary(to, fromm, cur):
+
+    s = 0
+    if isinstance(to, str) and isinstance(fromm, str):
+        return 0
+    elif isinstance(to, float|int) and isinstance(fromm, float|int):
+        s = (to + fromm) / 2
+    elif isinstance(to, float|int) :
+        s = to
+    elif isinstance(fromm, float|int):
+        s = fromm
+    if cur == 'RUR' or cur is None:
+        return s
+    return get_valut(s, cur)
 
 def update_sheet():
     print('Updating cell at', datetime.now())
@@ -43,7 +64,9 @@ scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 creds = ServiceAccountCredentials.from_json_keyfile_name(r'C:\Users\eduard2\PycharmProjects\hh_project\leftjoin\credentials.json', scope)
 gc = gspread.authorize(creds)
 
-
+url = 'https://www.cbr-xml-daily.ru/daily_json.js'
+valutes = requests.get(url).json().get('Valute')
+valutes['BYR'] = valutes.get('BYN')
 
 for query_type, level, direction, query_string in zip(queries['Тип'], queries['Уровень'], queries['Направление'],
                                                       queries['Ключевое слово']):
@@ -66,21 +89,23 @@ for query_type, level, direction, query_string in zip(queries['Тип'], queries
             except Exception as E:
                 continue
         for item in vacancies_from_response:
+            print(item)
+
 
             for vacancy in item:
                 name = vacancy['name'].replace("'", "").replace('"', '')
                 if check_name(name):
                     continue
 
-                try:
-                    ccount = client.execute(
-                        f"SELECT count(1) FROM vacancies_short WHERE (employer_id={vacancy['employer']['id']} AND name='{name}')").fetchall()[
-                        0][0]
-                except Exception as E:
-                    print(f'!!!!! {vacancy}')
-                    continue
+                # try:
+                #     ccount = client.execute(
+                #         f"SELECT count(1) FROM vacancies_short WHERE (employer_id={vacancy['employer']['id']} AND name='{name}')").fetchall()[
+                #         0][0]
+                # except Exception as E:
+                #     print(f'!!!!! {vacancy}')
+                #     continue
 
-                if ccount == 0:
+                if True: #ccount == 0:
 
                     vacancy_id = vacancy['id']
                     is_premium = int(vacancy['premium'])
@@ -122,6 +147,9 @@ for query_type, level, direction, query_string in zip(queries['Тип'], queries
                         salary_to = vacancy['salary']['to']
                     except TypeError as E:
                         salary_to = ""
+
+
+
                     try:
                         salary_currency = vacancy['salary']['currency']
                         if salary_currency == 'RUR' and salary_from < 15000:
@@ -132,6 +160,13 @@ for query_type, level, direction, query_string in zip(queries['Тип'], queries
                         salary_gross = int(vacancy['salary']['gross'])
                     except TypeError as E:
                         salary_gross = ""
+                    try:
+                        if vacancy['salary'] is not None:
+                            avg_solary = chek_salary(salary_to, salary_from, salary_currency)
+                        else:
+                            avg_solary = ""
+                    except TypeError as E:
+                        avg_solary = ""
                     try:
                         insider_interview_id = vacancy['insider_interview']['id']
                     except TypeError:
@@ -184,6 +219,7 @@ for query_type, level, direction, query_string in zip(queries['Тип'], queries
                         schedule = None
                     if schedule == 'flyInFlyOut':
                         continue
+                    
                     vacancies_short_list = [added_at, query_string, query_type, level, direction, vacancy_id,
                                             is_premium, has_test, response_url, address_city, address_street,
                                             address_building, address_description, address_lat, address_lng,
@@ -195,12 +231,13 @@ for query_type, level, direction, query_string in zip(queries['Тип'], queries
                                             employer_logo_urls_90, employer_logo_urls_240,
                                             employer_logo_urls_original,
                                             employer_name, employer_id, response_letter_required, type_id,
-                                            type_name, is_archived, schedule]
+                                            type_name, is_archived, schedule, avg_solary]
                     for index, item in enumerate(vacancies_short_list):
                         if item is None:
                             vacancies_short_list[index] = ""
                     tuple_to_insert = tuple(vacancies_short_list)
-                    # print(tuple_to_insert)
+                    # print(vacancies_short_list)
+
                     client.execute(f'INSERT INTO vacancies_short VALUES {tuple_to_insert}')
                     con.commit()
                     data = client.execute("SELECT count(1) FROM vacancies_short ")
